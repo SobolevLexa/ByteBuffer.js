@@ -110,7 +110,7 @@ module.exports = (function() {
      * @const
      * @expose
      */
-    ByteBuffer.VERSION = "3.2.0";
+    ByteBuffer.VERSION = "3.3.0";
 
     /**
      * Little endian constant that can be used instead of its boolean value. Evaluates to `true`.
@@ -165,6 +165,44 @@ module.exports = (function() {
      * @inner
      */
     var EMPTY_BUFFER = new Buffer(0);
+
+    /**
+     * String.fromCharCode reference for compile-time renaming.
+     * @type {function(...number):string}
+     * @inner
+     */
+    var stringFromCharCode = String.fromCharCode;
+
+    /**
+     * Creates a source function for a string.
+     * @param {string} s String to read from
+     * @returns {function():number|null} Source function returning the next char code respectively `null` if there are
+     *  no more characters left.
+     * @throws {TypeError} If the argument is invalid
+     * @inner
+     */
+    function stringSource(s) {
+        var i=0; return function() {
+            return i < s.length ? s.charCodeAt(i++) : null;
+        };
+    }
+
+    /**
+     * Creates a destination function for a string.
+     * @returns {function(number=):undefined|string} Destination function successively called with the next char code.
+     *  Returns the final string when called without arguments.
+     * @inner
+     */
+    function stringDestination() {
+        var cs = [], ps = []; return function() {
+            if (arguments.length === 0)
+                return ps.join('')+stringFromCharCode.apply(String, cs);
+            if (cs.length + arguments.length > 1024)
+                ps.push(stringFromCharCode.apply(String, cs)),
+                    cs.length = 0;
+            Array.prototype.push.apply(cs, arguments);
+        };
+    }
 
     /**
      * Allocates a new ByteBuffer backed by a buffer of the specified capacity.
@@ -1553,17 +1591,14 @@ module.exports = (function() {
         }
         var start = offset;
         // UTF8 strings do not contain zero bytes in between except for the zero character, so:
-        var buffer = new Buffer(str, 'utf8');
-        k = buffer.length;
+        k = Buffer.byteLength(str, "utf8");
         offset += k+1;
         var capacity12 = this.buffer.length;
         if (offset > capacity12)
             this.resize((capacity12 *= 2) > offset ? capacity12 : offset);
         offset -= k+1;
-        buffer.copy(this.buffer, offset);
-        offset += k;
+        offset += this.buffer.write(str, offset, k, "utf8");
         this.buffer[offset++] = 0;
-        buffer = null;
         if (relative) {
             this.offset = offset - start;
             return this;
@@ -1598,7 +1633,7 @@ module.exports = (function() {
                 throw new RangeError("Index out of range: "+offset+" <= "+this.buffer.length);
             temp = this.buffer[offset++];
         } while (temp !== 0);
-        var str = this.buffer.slice(start, offset-1).toString("utf8");
+        var str = this.buffer.toString("utf8", start, offset-1);
         if (relative) {
             this.offset = offset;
             return str;
@@ -1635,8 +1670,7 @@ module.exports = (function() {
         }
         var start = offset,
             k;
-        var buffer = new Buffer(str, "utf8");
-        k = buffer.length;
+        k = Buffer.byteLength(str, "utf8");
         offset += 4+k;
         var capacity13 = this.buffer.length;
         if (offset > capacity13)
@@ -1654,8 +1688,7 @@ module.exports = (function() {
             this.buffer[offset+3] =  k         & 0xFF;
         }
         offset += 4;
-        buffer.copy(this.buffer, offset);
-        offset += k;
+        offset += this.buffer.write(str, offset, k, "utf8");
         if (relative) {
             this.offset = offset;
             return this;
@@ -1699,7 +1732,7 @@ module.exports = (function() {
         offset += 4;
         if (offset + temp > this.buffer.length)
             throw new RangeError("Index out of bounds: "+offset+" + "+temp+" <= "+this.buffer.length);
-        str = this.buffer.slice(offset, offset + temp).toString("utf8");
+        str = this.buffer.toString("utf8", offset, offset + temp);
         offset += temp;
         if (relative) {
             this.offset = offset;
@@ -1748,16 +1781,15 @@ module.exports = (function() {
                 throw new RangeError("Illegal offset: 0 <= "+offset+" (+"+0+") <= "+this.buffer.length);
         }
         var k;
-        var buffer = new Buffer(str, 'utf8');
-        k = buffer.length;
+        k = Buffer.byteLength(str, "utf8");
         offset += k;
         var capacity14 = this.buffer.length;
         if (offset > capacity14)
             this.resize((capacity14 *= 2) > offset ? capacity14 : offset);
         offset -= k;
-        buffer.copy(this.buffer, offset);
+        offset += this.buffer.write(str, offset, k, "utf8");
         if (relative) {
-            this.offset += k;
+            this.offset += offset;
             return this;
         }
         return k;
@@ -1782,7 +1814,7 @@ module.exports = (function() {
      * @expose
      */
     ByteBuffer.calculateUTF8Chars = function(str) {
-        return utfx.calculateUTF16asUTF8(utfx.stringSource(str))[0];
+        return utfx.calculateUTF16asUTF8(stringSource(str))[0];
     };
 
     /**
@@ -1832,7 +1864,7 @@ module.exports = (function() {
             temp,
             sd;
         if (metrics === ByteBuffer.METRICS_CHARS) { // The same for node and the browser
-            sd = utfx.stringDestination();
+            sd = stringDestination();
             utfx.decodeUTF8(function() {
                 return i < length && offset < this.limit ? this.buffer[offset++] : null;
             }.bind(this), function(cp) {
@@ -1857,7 +1889,7 @@ module.exports = (function() {
                 if (offset < 0 || offset + length > this.buffer.length)
                     throw new RangeError("Illegal offset: 0 <= "+offset+" (+"+length+") <= "+this.buffer.length);
             }
-            temp = this.buffer.slice(offset, offset+length).toString("utf8");
+            temp = this.buffer.toString("utf8", offset, offset+length);
             if (relative) {
                 this.offset += length;
                 return temp;
@@ -1910,17 +1942,15 @@ module.exports = (function() {
         }
         var start = offset,
             k, l;
-        var buffer = new Buffer(str, "utf8");
-        k = buffer.length;
+        k = Buffer.byteLength(str, "utf8");
         l = ByteBuffer.calculateVarint32(k);
         offset += l+k;
         var capacity15 = this.buffer.length;
         if (offset > capacity15)
             this.resize((capacity15 *= 2) > offset ? capacity15 : offset);
         offset -= l+k;
-        offset += this.writeVarint32(buffer.length, offset);
-        buffer.copy(this.buffer, offset);
-        offset += buffer.length;
+        offset += this.writeVarint32(k, offset);
+        offset += this.buffer.write(str, offset, k, "utf8");
         if (relative) {
             this.offset = offset;
             return this;
@@ -1954,7 +1984,7 @@ module.exports = (function() {
         temp = temp['value'];
         if (offset + temp > this.buffer.length)
             throw new RangeError("Index out of bounds: "+offset+" + "+val.value+" <= "+this.buffer.length);
-        str = this.buffer.slice(offset, offset + temp).toString("utf8");
+        str = this.buffer.toString("utf8", offset, offset + temp);
         offset += temp;
         if (relative) {
             this.offset = offset;
@@ -2646,7 +2676,7 @@ module.exports = (function() {
             if (begin < 0 || begin > end || end > this.buffer.length)
                 throw new RangeError("Illegal range: 0 <= "+begin+" <= "+end+" <= "+this.buffer.length);
         }
-        return this.buffer.slice(begin, end).toString("base64");
+        return this.buffer.toString("base64", begin, end);
     };
 
     /**
@@ -2728,7 +2758,7 @@ module.exports = (function() {
             if (begin < 0 || begin > end || end > this.buffer.length)
                 throw new RangeError("Illegal range: 0 <= "+begin+" <= "+end+" <= "+this.buffer.length);
         }
-        return this.buffer.slice(begin, end).toString("binary");
+        return this.buffer.toString("binary", begin, end);
     };
 
     /**
@@ -2953,7 +2983,7 @@ module.exports = (function() {
             if (begin < 0 || begin > end || end > this.buffer.length)
                 throw new RangeError("Illegal range: 0 <= "+begin+" <= "+end+" <= "+this.buffer.length);
         }
-        return this.buffer.slice(begin, end).toString("hex");
+        return this.buffer.toString("hex", begin, end);
     };
 
     /**
@@ -3177,42 +3207,6 @@ module.exports = (function() {
 
         return utfx;
     }();
-
-    /**
-     * String.fromCharCode reference for compile-time renaming.
-     * @type {function(...number):string}
-     * @inner
-     */
-    var stringFromCharCode = String.fromCharCode;
-
-    /**
-     * Creates a source function for a string.
-     * @param {string} s String to read from
-     * @returns {function():number|null} Source function returning the next char code respectively `null` if there are
-     *  no more characters left.
-     * @throws {TypeError} If the argument is invalid
-     */
-    utfx.stringSource = function(s) {
-        var i=0; return function() {
-            return i < s.length ? s.charCodeAt(i++) : null;
-        };
-    };
-
-    /**
-     * Creates a destination function for a string.
-     * @returns {function(number=):undefined|string} Destination function successively called with the next char code.
-     *  Returns the final string when called without arguments.
-     */
-    utfx.stringDestination = function() {
-        var cs = [], ps = []; return function() {
-            if (arguments.length === 0)
-                return ps.join('')+stringFromCharCode.apply(String, cs);
-            if (cs.length + arguments.length > 1024)
-                ps.push(stringFromCharCode.apply(String, cs)),
-                cs.length = 0;
-            Array.prototype.push.apply(cs, arguments);
-        };
-    };
 
     // encodings/utf8
 

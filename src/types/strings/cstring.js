@@ -26,17 +26,14 @@ ByteBuffer.prototype.writeCString = function(str, offset) {
     var start = offset;
     // UTF8 strings do not contain zero bytes in between except for the zero character, so:
     //? if (NODE) {
-    var buffer = new Buffer(str, 'utf8');
-    k = buffer.length;
+    k = Buffer.byteLength(str, "utf8");
     //? ENSURE_CAPACITY('k+1');
-    buffer.copy(this.buffer, offset);
-    offset += k;
+    offset += this.buffer.write(str, offset, k, "utf8");
     this.buffer[offset++] = 0;
-    buffer = null;
     //? } else {
-    k = utfx.calculateUTF16asUTF8(utfx.stringSource(str))[1];
+    k = utfx.calculateUTF16asUTF8(stringSource(str))[1];
     //? ENSURE_CAPACITY('k+1');
-    utfx.encodeUTF16toUTF8(utfx.stringSource(str), function(b) {
+    utfx.encodeUTF16toUTF8(stringSource(str), function(b) {
         this.view.setUint8(offset++, b);
     }.bind(this));
     this.view.setUint8(offset++, 0);
@@ -71,7 +68,7 @@ ByteBuffer.prototype.readCString = function(offset) {
             throw new RangeError("Index out of range: "+offset+" <= "+this.buffer.length);
         temp = this.buffer[offset++];
     } while (temp !== 0);
-    var str = this.buffer.slice(start, offset-1).toString("utf8");
+    var str = this.buffer.toString("utf8", start, offset-1);
     if (relative) {
         this.offset = offset;
         return str;
@@ -88,7 +85,7 @@ ByteBuffer.prototype.readCString = function(offset) {
         if (offset >= this.limit)
             throw RangeError("Illegal range: Truncated data, "+offset+" < "+this.limit);
         return (b = this.view.getUint8(offset++)) === 0 ? null : b;
-    }.bind(this), sd = utfx.stringDestination(), true);
+    }.bind(this), sd = stringDestination(), true);
     if (relative) {
         this.offset = offset;
         return sd();

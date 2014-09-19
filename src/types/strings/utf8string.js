@@ -31,20 +31,19 @@ ByteBuffer.prototype.writeUTF8String = function(str, offset) {
     }
     var k;
     //? if (NODE) {
-    var buffer = new Buffer(str, 'utf8');
-    k = buffer.length;
+    k = Buffer.byteLength(str, "utf8");
     //? ENSURE_CAPACITY('k');
-    buffer.copy(this.buffer, offset);
+    offset += this.buffer.write(str, offset, k, "utf8");
     if (relative) {
-        this.offset += k;
+        this.offset += offset;
         return this;
     }
     return k;
     //? } else {
     var start = offset;
-    k = utfx.calculateUTF16asUTF8(utfx.stringSource(str))[1];
+    k = utfx.calculateUTF16asUTF8(stringSource(str))[1];
     //? ENSURE_CAPACITY('k');
-    utfx.encodeUTF16toUTF8(utfx.stringSource(str), function(b) {
+    utfx.encodeUTF16toUTF8(stringSource(str), function(b) {
         this.view.setUint8(offset++, b);
     }.bind(this));
     if (relative) {
@@ -76,7 +75,7 @@ ByteBuffer.prototype.writeString = ByteBuffer.prototype.writeUTF8String;
  * @expose
  */
 ByteBuffer.calculateUTF8Chars = function(str) {
-    return utfx.calculateUTF16asUTF8(utfx.stringSource(str))[0];
+    return utfx.calculateUTF16asUTF8(stringSource(str))[0];
 };
 
 /**
@@ -92,7 +91,7 @@ ByteBuffer.calculateUTF8Bytes = function(str) {
         throw new TypeError("Illegal argument: "+(typeof str));
     return Buffer.byteLength(str, "utf8");
     //? } else
-    return utfx.calculateUTF16asUTF8(utfx.stringSource(str))[1];
+    return utfx.calculateUTF16asUTF8(stringSource(str))[1];
 };
 
 /**
@@ -123,7 +122,7 @@ ByteBuffer.prototype.readUTF8String = function(length, metrics, offset) {
         temp,
         sd;
     if (metrics === ByteBuffer.METRICS_CHARS) { // The same for node and the browser
-        sd = utfx.stringDestination();
+        sd = stringDestination();
         utfx.decodeUTF8(function() {
             //? if (NODE)
             return i < length && offset < this.limit ? this.buffer[offset++] : null;
@@ -148,7 +147,7 @@ ByteBuffer.prototype.readUTF8String = function(length, metrics, offset) {
             //? ASSERT_OFFSET('length');
         }
         //? if (NODE) {
-        temp = this.buffer.slice(offset, offset+length).toString("utf8");
+        temp = this.buffer.toString("utf8", offset, offset+length);
         if (relative) {
             this.offset += length;
             return temp;
@@ -162,7 +161,7 @@ ByteBuffer.prototype.readUTF8String = function(length, metrics, offset) {
         var k = offset + length;
         utfx.decodeUTF8toUTF16(function() {
             return offset < k ? this.view.getUint8(offset++) : null;
-        }.bind(this), sd = utfx.stringDestination(), this.noAssert);
+        }.bind(this), sd = stringDestination(), this.noAssert);
         if (offset !== k)
             throw new RangeError("Illegal range: Truncated data, "+offset+" == "+k);
         if (relative) {

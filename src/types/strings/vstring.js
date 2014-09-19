@@ -20,19 +20,17 @@ ByteBuffer.prototype.writeVString = function(str, offset) {
     var start = offset,
         k, l;
     //? if (NODE) {
-    var buffer = new Buffer(str, "utf8");
-    k = buffer.length;
-    l = ByteBuffer.calculateVarint32(k);
-    //? ENSURE_CAPACITY('l+k');
-    offset += this.writeVarint32(buffer.length, offset);
-    buffer.copy(this.buffer, offset);
-    offset += buffer.length;
-    //? } else {
-    k = utfx.calculateUTF16asUTF8(utfx.stringSource(str), this.noAssert)[1];
+    k = Buffer.byteLength(str, "utf8");
     l = ByteBuffer.calculateVarint32(k);
     //? ENSURE_CAPACITY('l+k');
     offset += this.writeVarint32(k, offset);
-    utfx.encodeUTF16toUTF8(utfx.stringSource(str), function(b) {
+    offset += this.buffer.write(str, offset, k, "utf8");
+    //? } else {
+    k = utfx.calculateUTF16asUTF8(stringSource(str), this.noAssert)[1];
+    l = ByteBuffer.calculateVarint32(k);
+    //? ENSURE_CAPACITY('l+k');
+    offset += this.writeVarint32(k, offset);
+    utfx.encodeUTF16toUTF8(stringSource(str), function(b) {
         this.view.setUint8(offset++, b);
     }.bind(this));
     if (offset !== start+k+l)
@@ -67,11 +65,11 @@ ByteBuffer.prototype.readVString = function(offset) {
     //? if (NODE) {
     if (offset + temp > this.buffer.length)
         throw new RangeError("Index out of bounds: "+offset+" + "+val.value+" <= "+this.buffer.length);
-    str = this.buffer.slice(offset, offset + temp).toString("utf8");
+    str = this.buffer.toString("utf8", offset, offset + temp);
     offset += temp;
     //? } else {
     var k = offset + temp,
-        sd = utfx.stringDestination();
+        sd = stringDestination();
     utfx.decodeUTF8toUTF16(function() {
         return offset < k ? this.view.getUint8(offset++) : null;
     }.bind(this), sd, this.noAssert);
